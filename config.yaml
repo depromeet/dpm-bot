@@ -1,0 +1,57 @@
+# 디프만 19기 활동 포인트 설정
+# 디스코드 ID는 디스코드에서 우클릭 → "ID 복사하기"로 얻어요 (사용자 설정 → 고급 → 개발자 모드 켜기)
+# 테스트 서버로 테스트한 뒤, 진짜 서버에 적용할 때 ID만 바꿔 넣으면 돼요.
+
+guild_id: "1563431803107287110"   # 테스트 서버
+
+season:
+  start: 2026-10-01   # 이 날부터 (KST) ⚠️ 테스트용. 진짜 서버 적용 전에 2026-10-31로 되돌리기
+  end: 2027-02-20     # 이 날까지 (KST)
+
+channels:
+  question_forum: "1563431803920977981"  # 🙋오늘의-질문 (포럼)
+  bungae_forum: "1563431803920977982"    # ⚡번개 (포럼)
+  study_forum: "1563431803920977983"     # 📚스터디 (포럼)
+  pass_forum: "1563431803920977984"      # 🎫디프만-패스 (포럼)
+  blog: "1563431803920977980"            # 📝블로그-후기
+  leaderboard: "1563431803619115111"     # 📊리더보드
+  admin_report: "1563435945695387752"    # 📋점수-집계 (운영진 전용)
+
+roles:
+  admins:             # 운영진(홍보부 포함). 점수 집계에서 빠지고, ✅/❌ 리액션 권한을 가져요
+    - "1563431803107287111"   # 운영진
+  pass_stages:        # 패스 1·2·3단계 뱃지 역할 (순서대로)
+    - "1563435752316997653"   # 패스 1단계
+    - "1563435708495036537"   # 패스 2단계
+    - "1563435535392051291"   # 패스 3단계
+
+points:
+  question_per_week: 3              # 오늘의 질문: 그 주에 한 번이라도 답하면
+  bungae_join: {each: 10, max: 50}
+  bungae_host: {each: 20, max: 60}
+  study_join: {each: 20, max: 40}
+  study_open: {each: 30, max: 60}
+  blog: [10, 15, 20]                # 후기 1번째 · 2번째 · 3번째 (최대 3건)
+  pass_stages:                      # 미션 개수 → 그 단계에서 받는 점수
+    - {missions: 4, points: 10}
+    - {missions: 8, points: 20}
+    - {missions: 12, points: 30}
+
+leaderboard_size: 5
+
+# proof: mention(멘션 필요) / image(스샷·사진 필요)
+# min_mentions: 멘션해야 하는 최소 인원 (기본 1)
+# mention_admin: true면 운영진을 멘션해야 인정
+missions:
+  - {num: 1, group: 팀 안에서, title: 같은 팀원과 모각코 하기, proof: mention}
+  - {num: 2, group: 팀 안에서, title: 팀원 3명 이상과 식사 또는 회식하기, proof: mention, min_mentions: 2}
+  - {num: 3, group: 팀 안에서, title: 팀원에게 고마운 점 한 가지 전하기, proof: mention}
+  - {num: 4, group: 다른 팀과, title: 다른 팀 디퍼와 밥 먹기, proof: mention}
+  - {num: 5, group: 다른 팀과, title: 다른 팀 디퍼와 모각코 하기, proof: mention}
+  - {num: 6, group: 다른 팀과, title: 다른 팀 디퍼와 프로젝트 고민 나누기, proof: mention}
+  - {num: 7, group: 다른 팀과, title: 다른 팀 서비스 써보고 그 팀 디퍼에게 피드백 남기기, proof: mention}
+  - {num: 8, group: 디프만 커뮤니티, title: 운영진에게 디프만 활동 피드백 한 가지 전하기, proof: mention, mention_admin: true}
+  - {num: 9, group: 디프만 커뮤니티, title: 디퍼에게 책·영상·글 추천받기, proof: mention}
+  - {num: 10, group: 디프만 커뮤니티, title: 오늘의 질문에서 다른 디퍼 답변에 댓글 달기, proof: image}
+  - {num: 11, group: 디프만 커뮤니티, title: ai-인사이트 또는 채용-홍보 채널에 유용한 자료 공유하기, proof: image}
+  - {num: 12, group: 디프만 커뮤니티, title: 세션 때 찍은 사진 공유하기, proof: image}
