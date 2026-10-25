@@ -31,8 +31,9 @@ copy .env.example .env      # DISCORD_TOKEN= 뒤에 봇 토큰 입력
 1. 봇을 **관리자 권한 포함**으로 새 서버에 초대 (`Message Content`, `Server Members` 인텐트 필요)
 2. `python setup_server.py --list` → 서버 ID 확인
 3. `python setup_server.py --guild <서버ID>` → 바뀔 내용 미리보기
-4. `python setup_server.py --guild <서버ID> --apply --season-start YYYY-MM-DD` → 적용 + `config.yaml` ID 자동 교체
-5. 서버 설정에서 역할 순서를 `운영진 → 봇 → 패스 3단계 → 2단계 → 1단계`로 드래그 (봇은 자기 역할을 못 옮김)
-6. 봇 역할의 **관리자 권한 끄기**
-7. `config.yaml`의 시즌 종료일 확인 후 커밋·푸시
-8. 저장소 `Settings → Secrets and variables → Actions`에 `DISCORD_TOKEN` 등록 (같은 봇이면 그대로)
+4. `python setup_server.py --guild <서버ID> --apply --season-start YYYY-MM-DD --dipper-role "20기 디퍼"` → 적용 + `config.yaml` ID 자동 교체
+5. 서버 설정에서 역할 순서를 `운영진 → 봇 → 패스 3단계 → 2단계 → 1단계 → N기 디퍼`로 드래그 (봇은 자기 역할을 못 옮김)
+6. 디퍼들에게 `N기 디퍼` 역할 부여 — **이 역할이 있는 사람만 집계된다**
+7. 봇 역할의 **관리자 권한 끄기**
+8. `config.yaml`의 시즌 종료일 확인 후 커밋·푸시
+9. 저장소 `Settings → Secrets and variables → Actions`에 `DISCORD_TOKEN` 등록 (같은 봇이면 그대로)

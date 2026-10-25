@@ -291,7 +291,13 @@ def run(cfg: dict, dc: Discord) -> None:
     members = dc.members(gid)
     admin_roles = set(roles["admins"])
     admins = {owner_id} | {m["user"]["id"] for m in members if admin_roles & set(m["roles"])}
-    dippers = {m["user"]["id"]: m for m in members if not m["user"].get("bot") and m["user"]["id"] not in admins}
+    # 디퍼 역할이 지정돼 있으면 그 역할이 있는 사람만, 없으면 봇·운영진을 뺀 전원을 디퍼로 본다
+    dipper_roles = set(roles.get("dippers", []))
+    dippers = {
+        m["user"]["id"]: m for m in members
+        if not m["user"].get("bot") and m["user"]["id"] not in admins
+        and (not dipper_roles or dipper_roles & set(m["roles"]))
+    }
     names = {uid: display_name(m) for uid, m in dippers.items()}
     scores = {uid: Score() for uid in dippers}
     active = dc.get(f"/guilds/{gid}/threads/active")["threads"]
@@ -479,7 +485,7 @@ def load_config(path: Path) -> dict:
     # 디스코드 ID는 문자열로 통일 (따옴표 없이 적어도 동작하게)
     cfg["guild_id"] = str(cfg["guild_id"])
     cfg["channels"] = {k: str(v) for k, v in cfg["channels"].items()}
-    cfg["roles"] = {k: [str(r) for r in v] for k, v in cfg["roles"].items()}
+    cfg["roles"] = {k: [str(r) for r in (v or []) if r] for k, v in cfg["roles"].items()}
     for key in ("start", "end"):
         value = cfg["season"][key]
         cfg["season"][key] = value if isinstance(value, date) else date.fromisoformat(str(value))

@@ -34,6 +34,7 @@ CHANNELS = {
     "admin_report": ("점수-집계", TEXT),
 }
 ADMIN_ROLE = "운영진"
+DIPPER_ROLE = "19기 디퍼"  # 기본값. --dipper-role로 바꿀 수 있음. 색 없음: 색이 있으면 패스 뱃지 색을 가린다
 OPS_CATEGORY = "운영"
 NEW_ADMIN_REPORT = "📋점수-집계"
 PASS_ROLES = [("패스 1단계", 0xCD7F32), ("패스 2단계", 0xA8A9AD), ("패스 3단계", 0xD4AF37)]
@@ -101,7 +102,7 @@ def short(value) -> str:
     return text if len(text) <= 60 else text[:60] + "…"
 
 
-def plan_and_apply(dc: Discord, gid: str, apply: bool) -> dict[str, str]:
+def plan_and_apply(dc: Discord, gid: str, apply: bool, dipper_role: str = DIPPER_ROLE) -> dict[str, str]:
     """바꿀 내용을 출력하고, apply면 적용한다. 찾거나 만든 ID를 돌려준다."""
     bot_id = dc.get("/users/@me")["id"]
     guild = dc.get(f"/guilds/{gid}")
@@ -144,8 +145,16 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool) -> dict[str, str]:
             })
             ids["admin_report"] = made["id"]
 
-    # 2) 패스 역할: 없으면 만들고, 3단계가 위로 오게 봇 역할 아래쪽에 둔다
+    # 2) 디퍼 역할 · 패스 역할: 없으면 만든다 (새 역할은 맨 아래에 생긴다)
     print("\n[역할]")
+    dipper = next((r for r in roles if r["name"] == dipper_role), None)
+    if dipper:
+        print(f"  {dipper_role}: 이미 있음")
+        ids["dippers"] = dipper["id"]
+    else:
+        print(f"  {dipper_role}: 새로 만듦 (색 없음)")
+        if apply:
+            ids["dippers"] = dc._request("POST", f"/guilds/{gid}/roles", json={"name": dipper_role})["id"]
     pass_ids = []
     for name, color in PASS_ROLES:
         role = next((r for r in roles if r["name"] == name), None)
@@ -162,9 +171,10 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool) -> dict[str, str]:
         # 봇은 자기 역할보다 아래 있는 역할만 옮길 수 있어서, 순서는 사람이 맞추고 여기선 확인만 한다
         current = {r["id"]: r for r in dc.get(f"/guilds/{gid}/roles")}
         bot_top = max(r["position"] for r in current.values() if r.get("tags", {}).get("bot_id") == bot_id)
-        positions = [current[rid]["position"] for rid in pass_ids]
+        positions = [current[ids["dippers"]]["position"]] + [current[rid]["position"] for rid in pass_ids]
         if not (positions == sorted(set(positions)) and positions[-1] < bot_top):
-            print("  ⚠️ 역할 순서를 서버 설정에서 맞춰주세요: 운영진 → 디프만 봇 → 패스 3단계 → 2단계 → 1단계")
+            print(f"  ⚠️ 역할 순서를 서버 설정에서 맞춰주세요: "
+                  f"운영진 → 디프만 봇 → 패스 3단계 → 2단계 → 1단계 → {dipper_role}")
 
     # 3) 봇 예외 권한
     print("\n[봇 예외 권한]")
@@ -205,6 +215,7 @@ def update_config(path: Path, ids: dict, season_start: str) -> None:
     for key in CHANNELS:
         text = re.sub(rf'^(\s*{key}: )"[^"]*"', rf'\g<1>"{ids[key]}"', text, flags=re.M)
     text = re.sub(r'(admins:[^\n]*\n\s*- )"[^"]*"', rf'\g<1>"{ids["admins"]}"', text)
+    text = re.sub(r'(dippers:[^\n]*\n\s*- )"[^"]*"', rf'\g<1>"{ids["dippers"]}"', text)
     stages = ids["pass_stages"]
     text = re.sub(r'(pass_stages:[^\n]*\n\s*- )"[^"]*"(.*\n\s*- )"[^"]*"(.*\n\s*- )"[^"]*"',
                   rf'\g<1>"{stages[0]}"\g<2>"{stages[1]}"\g<3>"{stages[2]}"', text)
@@ -220,6 +231,7 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="실제로 적용 (없으면 미리보기)")
     parser.add_argument("--season-start", default="2026-10-31", help="config에 넣을 시즌 시작일")
     parser.add_argument("--config", default="config.yaml", help="갱신할 설정 파일")
+    parser.add_argument("--dipper-role", default=DIPPER_ROLE, help="디퍼 역할 이름 (예: 20기 디퍼)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -233,7 +245,7 @@ def main() -> int:
             print(g["id"], g["name"])
         return 0
 
-    ids = plan_and_apply(dc, args.guild, args.apply)
+    ids = plan_and_apply(dc, args.guild, args.apply, args.dipper_role)
     if not args.apply:
         print("\n미리보기예요. 괜찮으면 --apply를 붙여서 다시 실행하세요.")
         return 0
