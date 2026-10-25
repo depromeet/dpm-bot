@@ -491,6 +491,7 @@ def main() -> int:
     sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="디프만 활동 포인트 집계")
     parser.add_argument("--dry-run", action="store_true", help="디스코드에 쓰지 않고 결과만 출력")
+    parser.add_argument("--config", default="config.yaml", help="설정 파일 (테스트 서버는 config.test.yaml)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -500,7 +501,7 @@ def main() -> int:
         return 1
 
     dc = Discord(token, args.dry_run)
-    run(load_config(Path(__file__).with_name("config.yaml")), dc)
+    run(load_config(Path(__file__).with_name(args.config)), dc)
     if dc.errors:
         print(f"⚠️ 실패한 쓰기 요청 {len(dc.errors)}건")
         for e in dc.errors[:10]:
