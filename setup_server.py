@@ -32,15 +32,23 @@ CHANNELS = {
     "blog": ("블로그-후기", TEXT),
     "leaderboard": ("리더보드", TEXT),
     "admin_report": ("점수-집계", TEXT),
+    "question_queue": ("질문-예약", TEXT),
 }
 ADMIN_ROLE = "운영진"
 DIPPER_ROLE = "19기 디퍼"  # 기본값. --dipper-role로 바꿀 수 있음. 색 없음: 색이 있으면 패스 뱃지 색을 가린다
 OPS_CATEGORY = "운영"
-NEW_ADMIN_REPORT = "📋점수-집계"
+# 없으면 운영 카테고리 안에 새로 만드는 운영진 전용 채널
+NEW_CHANNELS = {"admin_report": "📋점수-집계", "question_queue": "📝질문-예약"}
 PASS_ROLES = [("패스 1단계", 0xCD7F32), ("패스 2단계", 0xA8A9AD), ("패스 3단계", 0xD4AF37)]
 
 # 봇이 디퍼에게 막힌 곳에서도 일할 수 있게 주는 예외 권한
-BOT_ALLOW = {"admin_report": VIEW | SEND | HISTORY, "leaderboard": SEND, "pass_forum": SEND}
+BOT_ALLOW = {
+    "admin_report": VIEW | SEND | HISTORY,
+    "question_queue": VIEW | HISTORY,  # 예약된 질문 읽기
+    "leaderboard": SEND,
+    "pass_forum": SEND,
+    "question_forum": SEND,  # 오늘의 질문 자동 게시
+}
 
 GUIDE_QUESTION = """🙋 평일마다 질문이 올라와요
 
@@ -80,6 +88,8 @@ GUIDE_STUDY = """📚 스터디 여는 법
 TOPIC_BLOG = ("후기마다 메시지 하나씩, 주제 + 링크로 올려주세요. "
               "예) 1주차 세션 후기 https://velog.io/@... · 홍보부 확인 후 ✅가 달리면 점수에 반영돼요")
 TOPIC_LEADERBOARD = "활동 포인트 상위 5명이 업데이트돼요"
+TOPIC_QUEUE = ("질문만 쓰는 채널이에요. 한 줄에 'MM/DD 질문' (예: 11/2 가장 좋아하는 음식은?). "
+               "같은 날짜를 다시 쓰면 나중에 쓴 질문이 올라가요. 대화는 다른 채널에서 해주세요!")
 
 # config 키 → 바꿀 채널 설정 (topic은 포럼에선 게시물 가이드라인)
 CHANNEL_SETTINGS = {
@@ -89,6 +99,7 @@ CHANNEL_SETTINGS = {
     "pass_forum": {"default_auto_archive_duration": ONE_WEEK},
     "blog": {"topic": TOPIC_BLOG},
     "leaderboard": {"topic": TOPIC_LEADERBOARD},
+    "question_queue": {"topic": TOPIC_QUEUE},
 }
 
 
@@ -119,7 +130,7 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool, dipper_role: str = DIPPER
         found = find(name, kind)
         if found:
             ids[key] = found["id"]
-        elif key != "admin_report":
+        elif key not in NEW_CHANNELS:
             missing.append(f"#{name}")
     if missing:
         sys.exit("이 채널을 못 찾았어요: " + ", ".join(missing) + "\n채널 이름이 테스트 서버와 같은지 확인해주세요.")
@@ -129,21 +140,22 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool, dipper_role: str = DIPPER
         sys.exit(f"'{ADMIN_ROLE}' 역할을 못 찾았어요.")
     ids["admins"] = admin_role["id"]
 
-    # 1) 점수-집계 채널: 운영 카테고리 권한을 그대로 따르게 만든다
+    # 1) 운영진 전용 채널(점수-집계, 질문-예약): 운영 카테고리 권한을 그대로 따르게 만든다
     print("[채널]")
-    if "admin_report" in ids:
-        print(f"  {NEW_ADMIN_REPORT}: 이미 있음")
-    else:
+    for key, channel_name in NEW_CHANNELS.items():
+        if key in ids:
+            print(f"  {channel_name}: 이미 있음")
+            continue
         ops = find(OPS_CATEGORY, CATEGORY)
         if not ops:
             sys.exit(f"'{OPS_CATEGORY}' 카테고리를 못 찾았어요.")
-        print(f"  {NEW_ADMIN_REPORT}: 새로 만듦 (운영 카테고리 안, 운영진만 보임)")
+        print(f"  {channel_name}: 새로 만듦 (운영 카테고리 안, 운영진만 보임)")
         if apply:
             made = dc._request("POST", f"/guilds/{gid}/channels", json={
-                "name": NEW_ADMIN_REPORT, "type": TEXT, "parent_id": ops["id"],
+                "name": channel_name, "type": TEXT, "parent_id": ops["id"],
                 "permission_overwrites": ops.get("permission_overwrites", []),
             })
-            ids["admin_report"] = made["id"]
+            ids[key] = made["id"]
 
     # 2) 디퍼 역할 · 패스 역할: 없으면 만든다 (새 역할은 맨 아래에 생긴다)
     print("\n[역할]")
@@ -193,7 +205,12 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool, dipper_role: str = DIPPER
     # 4) 숨김 기간 · 가이드라인 · 채널 주제 (덮어쓰기)
     print("\n[채널 설정] 지금 값 → 바꿀 값")
     for key, settings in CHANNEL_SETTINGS.items():
-        channel = next(c for c in channels if c["id"] == ids[key])
+        channel = next((c for c in channels if c["id"] == ids.get(key)), None)
+        if channel is None:  # 이번에 새로 만든 채널은 아래에서 따로 설정
+            if apply and key in ids:
+                dc._request("PATCH", f"/channels/{ids[key]}", json=settings)
+            print(f"  #{CHANNELS[key][0]}: 새 채널에 설정")
+            continue
         changes = {k: v for k, v in settings.items() if channel.get(k) != v}
         if not changes:
             print(f"  #{CHANNELS[key][0]}: 이미 같음")

@@ -15,7 +15,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -33,6 +33,9 @@ PINNED_THREAD = 1 << 1  # 포럼에 고정된 글의 채널 플래그
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic")
 MISSION_NO = re.compile(r"^\s*#?\s*(\d{1,2})(?!\d)")
 USER_TAG = re.compile(r"<@!?(\d+)>")
+QUEUE_LINE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})(?:\s*\([월화수목금토일]\))?\s+(\S.*?)\s*$")  # '11/02 질문' 또는 '11/2(월) 질문'
+WEEKDAYS = "월화수목금토일"
+OPTIONAL_CHANNELS = {"question_queue"}  # 비워두면 그 기능만 꺼진다
 NO_PINGS = {"parse": []}
 MAX_LEN = 1900  # 디스코드 메시지 2,000자 제한에 여유를 둠
 SCORE_LABELS = ["질문", "번개참여", "번개주최", "스터디참여", "스터디개설", "패스", "후기"]
@@ -190,6 +193,29 @@ class Score:
         ]
 
 
+def question_schedule(messages: list[dict], season: Season) -> dict[date, str]:
+    """질문-예약 채널의 'MM/DD 질문' 줄을 날짜별로 모은다. 같은 날짜가 또 나오면 나중에 쓴 것으로 바꾼다."""
+    plan: dict[date, str] = {}
+    for msg in messages:  # 오래된 순
+        for line in msg.get("content", "").splitlines():
+            m = QUEUE_LINE.match(line)
+            if not m:
+                continue
+            for year in range(season.start.year, season.end.year + 1):
+                try:
+                    day = date(year, int(m[1]), int(m[2]))
+                except ValueError:
+                    continue
+                if season.start <= day <= season.end:
+                    plan[day] = m[3]
+                    break
+    return plan
+
+
+def question_title(day: date, text: str) -> str:
+    return f"{day.month}/{day.day}({WEEKDAYS[day.weekday()]}) {text}"[:100]
+
+
 def proof_ok(msg: dict, mission: dict, author: str, admins: set[str]) -> bool:
     """미션 인증 형식(멘션 또는 이미지)을 갖췄는지."""
     if mission["proof"] == "image":
@@ -279,7 +305,8 @@ def chunk(lines: list[str]) -> list[str]:
 
 # ── 실행 ─────────────────────────────────────────────────────
 
-def run(cfg: dict, dc: Discord) -> None:
+def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
+    """today를 주면 그 날짜인 척하고 오늘의 질문을 올린다 (테스트용)."""
     gid, ch, roles, rules = cfg["guild_id"], cfg["channels"], cfg["roles"], cfg["points"]
     season = Season(cfg["season"]["start"], cfg["season"]["end"])
     missions = cfg["missions"]
@@ -301,9 +328,32 @@ def run(cfg: dict, dc: Discord) -> None:
     names = {uid: display_name(m) for uid, m in dippers.items()}
     scores = {uid: Score() for uid in dippers}
     active = dc.get(f"/guilds/{gid}/threads/active")["threads"]
+    question_threads = dc.forum_threads(ch["question_forum"], active)
+
+    # 오늘의 질문 자동 게시: 질문-예약 채널에 오늘 날짜 질문이 있고, 게시 시각이 지났고, 아직 안 올렸으면 올린다
+    posted, upcoming = 0, None
+    if ch.get("question_queue"):
+        plan = question_schedule(dc.messages(ch["question_queue"]), season)
+        now = datetime.combine(today, dtime(12), KST) if today else datetime.now(KST)
+        today = now.date()
+        # 오늘 올라온 질문 글이 하나라도 있으면(봇이든 운영진이 직접 올렸든) 넘어간다
+        already = any(sent_at(t["id"]).date() == today or t["name"].startswith(f"{today.month}/{today.day}(")
+                      for t in question_threads if not is_pinned(t))
+        if today in plan and now.hour >= cfg.get("question_post_hour", 8) and not already:
+            dc.write("POST", f"/channels/{ch['question_forum']}/threads", {
+                "name": question_title(today, plan[today]),
+                "message": {
+                    "content": f"**{plan[today]}**",
+                    "allowed_mentions": NO_PINGS,
+                },
+            })
+            posted = 1
+            if dc.dry_run:
+                print(f"[오늘의 질문 미리보기] {question_title(today, plan[today])}")
+        upcoming = next(((d, plan[d]) for d in sorted(plan) if d > today), None)
 
     # 오늘의 질문: 질문 글에 디퍼가 답한 주(week)를 모은다
-    for th in dc.forum_threads(ch["question_forum"], active):
+    for th in question_threads:
         if is_pinned(th):
             continue
         for msg in dc.messages(th["id"]):
@@ -450,6 +500,8 @@ def run(cfg: dict, dc: Discord) -> None:
     ]
     finishers = [escape(names[u]) for u in ranking if scores[u].stage(rules) == len(rules["pass_stages"])]
     report = [f"📋 **활동 포인트 집계** · {datetime.now(KST):%m/%d %H:%M} 기준 · 디퍼 {len(dippers)}명"]
+    if ch.get("question_queue"):
+        report[0] += "\n📅 다음 질문 · " + (question_title(*upcoming) if upcoming else "예약된 질문이 없어요")
     report += chunk(rows)
     report.append("🏅 **패스 3단계 달성자** · " + (", ".join(finishers) or "아직 없어요"))
     review_lines = [f"📷 **최근 7일 스샷·사진 인증** · 이상하면 해당 메시지에 {REJECT}"]
@@ -457,7 +509,7 @@ def run(cfg: dict, dc: Discord) -> None:
     report += chunk(review_lines)
     dc.sync_messages(ch["admin_report"], bot_id, report)
 
-    print(f"디퍼 {len(dippers)}명 · 패스 글 생성 {created} · 현황판 갱신 {updated} · "
+    print(f"디퍼 {len(dippers)}명 · 질문 게시 {posted} · 패스 글 생성 {created} · 현황판 갱신 {updated} · "
           f"글 멤버 정리 {cleaned} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
     if dc.dry_run:  # 로컬 확인용. GitHub 로그에는 이름을 남기지 않는다
         print("\n[리더보드]\n" + "\n".join(leaderboard))
@@ -471,7 +523,8 @@ def run(cfg: dict, dc: Discord) -> None:
 
 def load_config(path: Path) -> dict:
     cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
-    missing = [f"channels.{k}" for k, v in cfg["channels"].items() if not v]
+    missing = [f"channels.{k}" for k, v in cfg["channels"].items() if not v and k not in OPTIONAL_CHANNELS]
+    cfg["channels"] = {k: v for k, v in cfg["channels"].items() if v}
     if not cfg.get("guild_id"):
         missing.insert(0, "guild_id")
     if not cfg["roles"].get("admins") or not all(cfg["roles"]["admins"]):
@@ -498,6 +551,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="디프만 활동 포인트 집계")
     parser.add_argument("--dry-run", action="store_true", help="디스코드에 쓰지 않고 결과만 출력")
     parser.add_argument("--config", default="config.yaml", help="설정 파일 (테스트 서버는 config.test.yaml)")
+    parser.add_argument("--today", type=date.fromisoformat, help="이 날짜인 척하고 오늘의 질문 게시 (테스트용, 예: 2026-11-02)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -507,7 +561,7 @@ def main() -> int:
         return 1
 
     dc = Discord(token, args.dry_run)
-    run(load_config(Path(__file__).with_name(args.config)), dc)
+    run(load_config(Path(__file__).with_name(args.config)), dc, args.today)
     if dc.errors:
         print(f"⚠️ 실패한 쓰기 요청 {len(dc.errors)}건")
         for e in dc.errors[:10]:
