@@ -44,7 +44,7 @@ PASS_ROLES = [("패스 1단계", 0xCD7F32), ("패스 2단계", 0xA8A9AD), ("패�
 # 봇이 디퍼에게 막힌 곳에서도 일할 수 있게 주는 예외 권한
 BOT_ALLOW = {
     "admin_report": VIEW | SEND | HISTORY,
-    "question_queue": VIEW | HISTORY,  # 예약된 질문 읽기
+    "question_queue": VIEW | SEND | HISTORY,  # 예약된 질문 읽기 + 봇이 올린 질문 목록 수정
     "leaderboard": SEND,
     "pass_forum": SEND,
     "question_forum": SEND,  # 오늘의 질문 자동 게시
