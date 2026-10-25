@@ -152,9 +152,9 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool, dipper_role: str = DIPPER
         print(f"  {dipper_role}: 이미 있음")
         ids["dippers"] = dipper["id"]
     else:
-        print(f"  {dipper_role}: 새로 만듦 (색 없음)")
+        print(f"  {dipper_role}: 새로 만듦 (색 없음, 권한 없음, 따로 표시)")
         if apply:
-            ids["dippers"] = dc._request("POST", f"/guilds/{gid}/roles", json={"name": dipper_role})["id"]
+            ids["dippers"] = dc._request("POST", f"/guilds/{gid}/roles", json={"name": dipper_role, "permissions": "0", "hoist": True})["id"]
     pass_ids = []
     for name, color in PASS_ROLES:
         role = next((r for r in roles if r["name"] == name), None)
@@ -162,9 +162,9 @@ def plan_and_apply(dc: Discord, gid: str, apply: bool, dipper_role: str = DIPPER
             print(f"  {name}: 이미 있음")
             pass_ids.append(role["id"])
             continue
-        print(f"  {name}: 새로 만듦")
+        print(f"  {name}: 새로 만듦 (권한 없음, 따로 표시)")
         if apply:
-            made = dc._request("POST", f"/guilds/{gid}/roles", json={"name": name, "color": color, "hoist": True})
+            made = dc._request("POST", f"/guilds/{gid}/roles", json={"name": name, "color": color, "hoist": True, "permissions": "0"})
             pass_ids.append(made["id"])
     if apply:
         ids["pass_stages"] = pass_ids
