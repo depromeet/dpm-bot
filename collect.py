@@ -32,6 +32,7 @@ USER_MESSAGE_TYPES = (0, 19)  # 일반 메시지, 답장 (시스템 메시지 �
 PINNED_THREAD = 1 << 1  # 포럼에 고정된 글의 채널 플래그
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic")
 MISSION_NO = re.compile(r"^\s*#?\s*(\d{1,2})(?!\d)")
+JOIN_MSG = re.compile(r"^\s*참여\s*:?\s*<@")  # 번개·스터디 참여 인증: '참여 @누구' ('참여하실 분 @누구'는 제외)
 USER_TAG = re.compile(r"<@!?(\d+)>")
 QUEUE_LINE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})(?:\s*\([월화수목금토일]\))?\s+(\S.*?)\s*$")  # '11/02 질문' 또는 '11/2(월) 질문'
 WEEKDAYS = "월화수목금토일"
@@ -274,6 +275,29 @@ def format_nums(nums: list[int]) -> str:
     return "·".join(f"{g[0]}~{g[-1]}" if len(g) >= 3 else "·".join(map(str, g)) for g in groups)
 
 
+def scoring_guide(cfg: dict) -> str:
+    """리더보드 위에 붙는 '점수 받는 법'. config 배점에서 만들어서 배점이 바뀌면 같이 바뀐다."""
+    p = cfg["points"]
+    totals, acc = [], 0
+    for s in p["pass_stages"]:  # 단계 점수는 누적이라 합계로 보여준다
+        acc += s["points"]
+        totals.append(f"{s['missions']}개면 {acc}점")
+    stages = "미션 " + ", ".join(totals)
+    ordinal = ["첫 번째", "두 번째", "세 번째", "네 번째", "다섯 번째"]
+    blog = ", ".join(f"{ordinal[i]} {v}점" for i, v in enumerate(p["blog"]))
+    lines = [
+        "📌 **점수 받는 법**",
+        f"- 오늘의 질문: 그 주에 한 번이라도 답하면 {p['question_per_week']}점",
+        f"- 번개: 참여 {p['bungae_join']['each']}점, 열기 {p['bungae_host']['each']}점",
+        f"- 스터디: 참여 {p['study_join']['each']}점, 열기 {p['study_open']['each']}점",
+        f"- 디프만 패스: {stages}",
+        f"- 후기 블로그: {blog}",
+    ]
+    if cfg.get("guide_url"):
+        lines += ["", "미션 목록과 인증 방법은 노션에서 확인해주세요", f"<{cfg['guide_url']}>"]
+    return "\n".join(lines)
+
+
 # ── 출력 서식 ────────────────────────────────────────────────
 
 def display_name(member: dict) -> str:
@@ -376,9 +400,11 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
             starter = next((m for m in msgs if m["id"] == th["id"]), None)
             if starter and dc.reacted_by(th["id"], starter, REJECT, admins):
                 continue
+            # "참여 @김디퍼 @이디퍼"처럼 '참여'로 시작하는 연 사람의 메시지만 센다 (모집하며 한 멘션은 제외)
             joined = {
                 u["id"]
                 for m in msgs if m["author"]["id"] == host and is_user_message(m)
+                and JOIN_MSG.match(m.get("content", ""))
                 for u in m.get("mentions", []) if u["id"] != host and u["id"] in scores
             }
             if not joined:
@@ -485,12 +511,12 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
             dc.write("PUT", f"/guilds/{gid}/members/{uid}/roles/{want}")
             role_changes += 1
 
-    # 3) 리더보드: 상위 N명 이름만
+    # 3) 리더보드: 점수 받는 법(위) + 상위 N명 이름(아래, 채널을 열면 먼저 보임)
     size = cfg.get("leaderboard_size", 5)
     top = [u for u in ranking if total[u] > 0][:size]
     leaderboard = [f"🏆 **활동 포인트 TOP {size}**", ""]
     leaderboard += [f"{i}. {escape(names[u])}" for i, u in enumerate(top, 1)] or ["아직 집계된 점수가 없어요!"]
-    dc.sync_messages(ch["leaderboard"], bot_id, ["\n".join(leaderboard)])
+    dc.sync_messages(ch["leaderboard"], bot_id, [scoring_guide(cfg), "\n".join(leaderboard)])
 
     # 4) 점수-집계 (운영진 전용): 전체 점수표 + 3단계 달성자 + 최근 7일 스샷 인증
     rows = [
@@ -505,7 +531,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     report += chunk(rows)
     report.append("🏅 **패스 3단계 달성자** · " + (", ".join(finishers) or "아직 없어요"))
     review_lines = [f"📷 **최근 7일 스샷·사진 인증** · 이상하면 해당 메시지에 {REJECT}"]
-    review_lines += [f"- {escape(names[u])} · {no}번 → {link}" for u, no, link in review] or ["없어요"]
+    review_lines += [f"- {escape(names[u])} {no}번: {link}" for u, no, link in review] or ["없어요"]
     report += chunk(review_lines)
     dc.sync_messages(ch["admin_report"], bot_id, report)
 
