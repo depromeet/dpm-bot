@@ -36,7 +36,7 @@ JOIN_MSG = re.compile(r"^\s*참여\s*:?\s*<@")  # 번개·스터디 참여 인�
 USER_TAG = re.compile(r"<@!?(\d+)>")
 QUEUE_LINE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})(?:\s*\([월화수목금토일]\))?\s+(\S.*?)\s*$")  # '11/02 질문' 또는 '11/2(월) 질문'
 WEEKDAYS = "월화수목금토일"
-OPTIONAL_CHANNELS = {"question_queue"}  # 비워두면 그 기능만 꺼진다
+OPTIONAL_CHANNELS = {"question_queue", "gift_log"}  # 비워두면 그 기능만 꺼진다
 NO_PINGS = {"parse": []}
 MAX_LEN = 1900  # 디스코드 메시지 2,000자 제한에 여유를 둠
 SCORE_LABELS = ["질문", "번개참여", "번개주최", "스터디참여", "스터디개설", "패스", "후기"]
@@ -173,6 +173,7 @@ class Score:
     study_join: set[str] = field(default_factory=set)
     study_open: set[str] = field(default_factory=set)
     missions: set[int] = field(default_factory=set)
+    mission_times: dict[int, datetime] = field(default_factory=dict)  # 미션별 처음 인정된 시각
     blogs: int = 0
 
     def stage(self, rules: dict) -> int:
@@ -215,6 +216,18 @@ def question_schedule(messages: list[dict], season: Season) -> dict[date, str]:
 
 def question_title(day: date, text: str) -> str:
     return f"{day.month}/{day.day}({WEEKDAYS[day.weekday()]}) {text}"[:100]
+
+
+def korean_date(day: date) -> str:
+    """10/24처럼 쓰면 점수로 읽힐 수 있어서 '10월 24일'로 쓴다."""
+    return f"{day.month}월 {day.day}일"
+
+
+def reached_at(score: Score, rules: dict, stage: int) -> datetime | None:
+    """그 단계에 도달한 시각 = 단계 문턱 개수째 미션이 처음 인정된 시각."""
+    need = rules["pass_stages"][stage - 1]["missions"]
+    times = sorted(score.mission_times.values())
+    return times[need - 1] if len(times) >= need else None
 
 
 def proof_ok(msg: dict, mission: dict, author: str, admins: set[str]) -> bool:
@@ -315,9 +328,10 @@ def chunk(lines: list[str]) -> list[str]:
     out, cur = [], []
 
     def flush():
-        if cur:
-            out.append("\n".join(cur))
-            cur.clear()
+        body = "\n".join(cur).strip("\n")  # 디스코드가 앞뒤 빈 줄을 지우므로 미리 정리 (안 그러면 매번 수정됨)
+        if body:
+            out.append(body)
+        cur.clear()
 
     for line in lines:
         if len("\n".join(cur + [line])) > MAX_LEN:
@@ -355,7 +369,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     question_threads = dc.forum_threads(ch["question_forum"], active)
 
     # 오늘의 질문 자동 게시: 질문-예약 채널에 오늘 날짜 질문이 있고, 게시 시각이 지났고, 아직 안 올렸으면 올린다
-    posted, upcoming = 0, None
+    posted = 0
     if ch.get("question_queue"):
         plan = question_schedule(dc.messages(ch["question_queue"]), season)
         now = datetime.combine(today, dtime(12), KST) if today else datetime.now(KST)
@@ -374,7 +388,6 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
             posted = 1
             if dc.dry_run:
                 print(f"[오늘의 질문 미리보기] {question_title(today, plan[today])}")
-        upcoming = next(((d, plan[d]) for d in sorted(plan) if d > today), None)
 
     # 오늘의 질문: 질문 글에 디퍼가 답한 주(week)를 모은다
     for th in question_threads:
@@ -444,6 +457,9 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
                     or dc.reacted_by(th["id"], msg, REJECT, admins)):
                 continue
             scores[uid].missions.add(mission["num"])
+            when = sent_at(msg["id"])
+            if mission["num"] not in scores[uid].mission_times or when < scores[uid].mission_times[mission["num"]]:
+                scores[uid].mission_times[mission["num"]] = when
             if mission["proof"] == "image" and sent_at(msg["id"]) >= week_ago:
                 review.append((uid, mission["num"], f"https://discord.com/channels/{gid}/{th['id']}/{msg['id']}"))
 
@@ -524,16 +540,39 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
                    + [f"{label} {v}" for label, v in zip(SCORE_LABELS, parts[u]) if v])
         for i, u in enumerate(ranking, 1)
     ]
-    finishers = [escape(names[u]) for u in ranking if scores[u].stage(rules) == len(rules["pass_stages"])]
-    report = [f"📋 **활동 포인트 집계** · {datetime.now(KST):%m/%d %H:%M} 기준 · 디퍼 {len(dippers)}명"]
-    if ch.get("question_queue"):
-        report[0] += "\n📅 다음 질문 · " + (question_title(*upcoming) if upcoming else "예약된 질문이 없어요")
-    report += chunk(rows)
-    report.append("🏅 **패스 3단계 달성자** · " + (", ".join(finishers) or "아직 없어요"))
+    # 점수표 + 운영진이 할 일(기프티콘, 스샷 검토)만 둔다.
+    # 섹션마다 메시지를 나누면 한 줄짜리 메시지가 많아져서, 전체를 이어 붙여 2,000자씩 나눈다
+    report = [f"📋 **활동 포인트 집계** · {korean_date(datetime.now(KST))} {datetime.now(KST):%H:%M} 기준 · 디퍼 {len(dippers)}명",
+              "", *rows]
+    # 기프티콘 대상: 이 단계를 달성한 사람 (달성일 순)
+    gift_stage = cfg.get("gift_stage", 2)
+    gifted = sorted((reached_at(scores[u], rules, gift_stage), u) for u in scores
+                    if scores[u].stage(rules) >= gift_stage)
+    if ch.get("gift_log"):
+        # 지급 채널: 달성자마다 메시지를 한 번만 올리고, 운영진이 보낸 뒤 ✅를 달면 지급 완료로 본다
+        logged = {}
+        for msg in dc.messages(ch["gift_log"]):
+            tag = USER_TAG.search(msg.get("content", "")) if msg["author"]["id"] == bot_id else None
+            if tag and tag.group(1) not in logged:
+                logged[tag.group(1)] = msg
+        for when, u in gifted:
+            if u not in logged:
+                dc.write("POST", f"/channels/{ch['gift_log']}/messages", {
+                    "content": f"☕ <@{u}> · 패스 {gift_stage}단계 달성 ({korean_date(when)})",
+                    "allowed_mentions": NO_PINGS,
+                })
+        pending = [u for _, u in gifted if u not in logged
+                   or not dc.reacted_by(ch["gift_log"], logged[u], APPROVE, admins)]
+        gift_lines = [f"☕ **패스 {gift_stage}단계 달성자 중 기프티콘 아직 안 보낸 사람 {len(pending)}명** · "
+                      f"보낸 뒤 기프티콘-지급 채널에서 {APPROVE}"]
+        gift_lines += [f"- {escape(names[u])}" for u in pending]
+    else:
+        gift_lines = [f"☕ **패스 {gift_stage}단계 달성자** · 커피 기프티콘 대상, 달성일 순"]
+        gift_lines += [f"- {escape(names[u])} {korean_date(when)} 달성" for when, u in gifted] or ["아직 없어요"]
     review_lines = [f"📷 **최근 7일 스샷·사진 인증** · 이상하면 해당 메시지에 {REJECT}"]
     review_lines += [f"- {escape(names[u])} {no}번: {link}" for u, no, link in review] or ["없어요"]
-    report += chunk(review_lines)
-    dc.sync_messages(ch["admin_report"], bot_id, report)
+    report += ["", *gift_lines, "", *review_lines]
+    dc.sync_messages(ch["admin_report"], bot_id, chunk(report))
 
     print(f"디퍼 {len(dippers)}명 · 질문 게시 {posted} · 패스 글 생성 {created} · 현황판 갱신 {updated} · "
           f"글 멤버 정리 {cleaned} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")

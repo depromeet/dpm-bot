@@ -16,6 +16,7 @@ channels:
   blog: "1563431803920977980"            # 📝블로그-후기
   leaderboard: "1563431803619115111"     # 📊리더보드
   question_queue: "1563795254140731485"                     # 📝질문-예약 (운영진 전용, 비워두면 자동 게시 안 함)
+  gift_log: "1563832331729506346"                           # 🎁기프티콘-지급 (운영진 전용, 비워두면 점수-집계에 달성자 목록만 표시)
   admin_report: "1563435945695387752"    # 📋점수-집계 (운영진 전용)
 
 roles:
@@ -43,6 +44,7 @@ points:
 leaderboard_size: 5
 guide_url: "https://app.notion.com/p/depromeet/9a245b4338b3836c94990175c9af190e"   # 리더보드 안내에 붙는 노션 링크 (비워두면 안 붙음)
 question_post_hour: 8   # 오늘의 질문 자동 게시: 이 시각(KST) 이후 첫 실행 때 올림
+gift_stage: 2   # 이 단계 달성자를 점수-집계에 커피 기프티콘 대상으로 표시
 
 # proof: mention(멘션 필요) / image(스샷·사진 필요)
 # min_mentions: 멘션해야 하는 최소 인원 (기본 1)

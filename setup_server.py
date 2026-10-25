@@ -33,12 +33,13 @@ CHANNELS = {
     "leaderboard": ("리더보드", TEXT),
     "admin_report": ("점수-집계", TEXT),
     "question_queue": ("질문-예약", TEXT),
+    "gift_log": ("기프티콘-지급", TEXT),
 }
 ADMIN_ROLE = "운영진"
 DIPPER_ROLE = "19기 디퍼"  # 기본값. --dipper-role로 바꿀 수 있음. 색 없음: 색이 있으면 패스 뱃지 색을 가린다
 OPS_CATEGORY = "운영"
 # 없으면 운영 카테고리 안에 새로 만드는 운영진 전용 채널
-NEW_CHANNELS = {"admin_report": "📋점수-집계", "question_queue": "📝질문-예약"}
+NEW_CHANNELS = {"admin_report": "📋점수-집계", "question_queue": "📝질문-예약", "gift_log": "🎁기프티콘-지급"}
 PASS_ROLES = [("패스 1단계", 0xCD7F32), ("패스 2단계", 0xA8A9AD), ("패스 3단계", 0xD4AF37)]
 
 # 봇이 디퍼에게 막힌 곳에서도 일할 수 있게 주는 예외 권한
@@ -48,6 +49,7 @@ BOT_ALLOW = {
     "leaderboard": SEND,
     "pass_forum": SEND,
     "question_forum": SEND,  # 오늘의 질문 자동 게시
+    "gift_log": VIEW | SEND | HISTORY,  # 기프티콘 대상 올리기 + ✅ 확인
 }
 
 GUIDE_QUESTION = """🙋 평일마다 질문이 올라와요
@@ -90,6 +92,7 @@ GUIDE_STUDY = """📚 스터디 여는 법
 TOPIC_BLOG = ("후기마다 메시지 하나씩, 주제 + 링크로 올려주세요. "
               "예) 1주차 세션 후기 https://velog.io/@... · 홍보부 확인 후 ✅가 달리면 점수에 반영돼요")
 TOPIC_LEADERBOARD = "활동 포인트 상위 5명이 업데이트돼요"
+TOPIC_GIFT = "패스 2단계를 달성한 디퍼가 생기면 봇이 올려요. 커피 기프티콘을 보낸 뒤 해당 메시지에 ✅를 달아주세요."
 TOPIC_QUEUE = ("질문만 쓰는 채널이에요. 한 줄에 'MM/DD 질문' (예: 11/2 가장 좋아하는 음식은?). "
                "같은 날짜를 다시 쓰면 나중에 쓴 질문이 올라가요. 대화는 다른 채널에서 해주세요!")
 
@@ -102,6 +105,7 @@ CHANNEL_SETTINGS = {
     "blog": {"topic": TOPIC_BLOG},
     "leaderboard": {"topic": TOPIC_LEADERBOARD},
     "question_queue": {"topic": TOPIC_QUEUE},
+    "gift_log": {"topic": TOPIC_GIFT},
 }
 
 

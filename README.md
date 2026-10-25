@@ -7,7 +7,7 @@
 | 파일 | 역할 |
 |---|---|
 | `collect.py` | 집계 스크립트 |
-| `setup_server.py` | 새 서버 세팅 (채널·역할·봇 권한·포럼 설정을 만들고 `config.yaml` ID를 채움) |
+| `setup_server.py` | 새 서버 세팅 (점수-집계·질문-예약·기프티콘-지급 채널, 역할, 봇 권한, 포럼 설정을 만들고 `config.yaml` ID를 채움) |
 | `config.yaml` | 실제 서버의 ID, 시즌 기간, 배점, 미션 목록 (GitHub Actions가 사용) |
 | `config.test.yaml` | 테스트 서버용 설정 (`--config config.test.yaml`) |
 | `.github/workflows/collect.yml` | 20분마다 자동 실행 + 수동 실행 버튼 |
