@@ -2,7 +2,9 @@ name: collect
 
 on:
   schedule:
-    - cron: "17 * * * *"   # 매시 17분 (정각은 GitHub가 붐벼서 피함)
+    # GitHub는 바쁠 때 예약 실행을 자주 건너뛰어서, 1시간에 3번 시도해 대략 1시간 안에 한 번은 돌게 한다.
+    # 정각·30분 같은 붐비는 시각은 피함.
+    - cron: "7,27,47 * * * *"
   workflow_dispatch:         # Actions 탭의 Run workflow 버튼으로 수동 실행
 
 concurrency:

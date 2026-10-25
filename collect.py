@@ -1,6 +1,6 @@
 """디프만 19기 활동 포인트 집계 스크립트.
 
-GitHub Actions에서 1시간마다 실행된다. 지정한 채널의 기록을 처음부터 다시 읽어
+GitHub Actions에서 20분마다 실행된다. 지정한 채널의 기록을 처음부터 다시 읽어
 점수를 계산하고 패스 현황판 · 리더보드 · 점수-집계 · 패스 뱃지를 갱신한다.
 매번 전체를 다시 계산하므로 배점을 바꾸거나 오류가 나도 다시 돌리면 된다.
 
@@ -232,7 +232,7 @@ def pass_board(uid: str, score: Score, missions: list[dict], rules: dict) -> str
         f"함께하는 미션({format_nums(together)})은 **멘션**, 혼자 하는 미션({format_nums(alone)})은 **스샷**!",
         "예) `4 오늘 @박디퍼 님이랑 점심 먹었어요!`",
         f"예) `{alone[0] if alone else 10} 완료했어요!` + 📷 스샷을 **같은 메시지에** 첨부",
-        "반영까지 1시간 정도 걸려요.",
+        "반영까지 몇 시간 걸릴 수 있어요.",
     ]
     return "\n".join(lines)
 
