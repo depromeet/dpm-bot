@@ -59,6 +59,6 @@ missions:
   - {num: 7, group: 다른 팀과, title: 다른 팀 서비스 써보고 그 팀 디퍼에게 피드백 남기기, proof: mention}
   - {num: 8, group: 디프만 커뮤니티, title: 운영진에게 디프만 활동 피드백 한 가지 전하기, proof: mention, mention_admin: true}
   - {num: 9, group: 디프만 커뮤니티, title: 디퍼에게 책·영상·글 추천받기, proof: mention}
-  - {num: 10, group: 디프만 커뮤니티, title: 오늘의 질문에서 다른 디퍼 답변에 댓글 달기, proof: image}
+  - {num: 10, group: 디프만 커뮤니티, title: 오늘의 질문에 답변하거나 다른 디퍼 답변에 리액션 남기기, proof: image}
   - {num: 11, group: 디프만 커뮤니티, title: ai-인사이트 또는 채용-홍보 채널에 유용한 자료 공유하기, proof: image}
   - {num: 12, group: 디프만 커뮤니티, title: 세션 때 찍은 사진 공유하기, proof: image}
