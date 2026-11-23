@@ -31,9 +31,11 @@ APPROVE, REJECT = "✅", "❌"
 USER_MESSAGE_TYPES = (0, 19)  # 일반 메시지, 답장 (시스템 메시지 제외)
 PINNED_THREAD = 1 << 1  # 포럼에 고정된 글의 채널 플래그
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic")
-MISSION_NO = re.compile(r"^\s*#?\s*(\d{1,2})(?!\d)")
+MISSION_NOS = re.compile(r"^\s*#?\s*(\d{1,2}(?:\s*[,·/&+]\s*#?\s*\d{1,2})*)(?!\d)")  # '4 ...', '2,3 ...'
 JOIN_MSG = re.compile(r"^\s*참여\s*:?\s*<@")  # 번개·스터디 참여 인증: '참여 @누구' ('참여하실 분 @누구'는 제외)
 USER_TAG = re.compile(r"<@!?(\d+)>")
+ROLE_TAG = re.compile(r"<@&(\d+)>")
+MEMBER_NOTICE_TYPES = (1, 2)  # 'OO님을 스레드에 추가/제거했어요' 시스템 메시지
 QUEUE_LINE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})(?:\s*\([월화수목금토일]\))?\s+(\S.*?)\s*$")  # '11/02 질문' 또는 '11/2(월) 질문'
 WEEKDAYS = "월화수목금토일"
 OPTIONAL_CHANNELS = {"question_queue", "gift_log"}  # 비워두면 그 기능만 꺼진다
@@ -230,14 +232,32 @@ def reached_at(score: Score, rules: dict, stage: int) -> datetime | None:
     return times[need - 1] if len(times) >= need else None
 
 
-def proof_ok(msg: dict, mission: dict, author: str, admins: set[str]) -> bool:
-    """미션 인증 형식(멘션 또는 이미지)을 갖췄는지."""
+def mission_entries(content: str) -> list[tuple[list[int], str]]:
+    """번호로 시작하는 줄부터 다음 번호 줄 전까지를 한 묶음으로 본다. '2,3 ...'처럼 번호를 묶어 써도 된다."""
+    entries: list[tuple[list[int], str]] = []
+    for line in content.splitlines():
+        head = MISSION_NOS.match(line)
+        if head:
+            entries.append(([int(n) for n in re.findall(r"\d+", head.group(1))], line))
+        elif entries:
+            nums, text = entries[-1]
+            entries[-1] = (nums, f"{text}\n{line}")
+    return entries
+
+
+def proof_ok(msg: dict, mission: dict, text: str, author: str, admins: set[str],
+             role_members: dict[str, set[str]]) -> bool:
+    """미션 인증 형식(멘션 또는 이미지)을 갖췄는지. 멘션은 그 미션 줄(text)에 있는 것만 센다."""
     if mission["proof"] == "image":
         return any(
             (a.get("content_type") or "").startswith("image/") or a["filename"].lower().endswith(IMAGE_EXTS)
             for a in msg.get("attachments", [])
         )
-    mentioned = {u["id"] for u in msg.get("mentions", []) if u["id"] != author and not u.get("bot")}
+    bots = {u["id"] for u in msg.get("mentions", []) if u.get("bot")}
+    mentioned = set(USER_TAG.findall(text))
+    for role in ROLE_TAG.findall(text):  # '@7팀'처럼 역할을 멘션하면 그 역할의 사람들을 멘션한 것으로 본다
+        mentioned |= role_members.get(role, set())
+    mentioned -= bots | {author}
     if mission.get("mention_admin"):
         mentioned &= admins
     return len(mentioned) >= mission.get("min_mentions", 1)
@@ -356,6 +376,11 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     members = dc.members(gid)
     admin_roles = set(roles["admins"])
     admins = {owner_id} | {m["user"]["id"] for m in members if admin_roles & set(m["roles"])}
+    role_members: dict[str, set[str]] = {}
+    for m in members:
+        if not m["user"].get("bot"):
+            for role in m["roles"]:
+                role_members.setdefault(role, set()).add(m["user"]["id"])
     # 디퍼 역할이 지정돼 있으면 그 역할이 있는 사람만, 없으면 봇·운영진을 뺀 전원을 디퍼로 본다
     dipper_roles = set(roles.get("dippers", []))
     dippers = {
@@ -428,7 +453,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
                 getattr(scores[uid], join_key).add(th["id"])
 
     # 디프만 패스: 봇이 만든 글만 본다. 글 주인은 현황판 첫 줄의 멘션으로 찾는다
-    posts: dict[str, tuple[dict, dict]] = {}
+    posts: dict[str, tuple[dict, dict, list[dict]]] = {}
     review: list[tuple[str, int, str]] = []
     week_ago = datetime.now(KST) - timedelta(days=7)
     for th in dc.forum_threads(ch["pass_forum"], active):
@@ -445,23 +470,24 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
         if not tag or tag.group(1) in posts:
             continue
         uid = tag.group(1)
-        posts[uid] = (th, starter)
+        posts[uid] = (th, starter, msgs)
         if uid not in scores:
             continue
+        # 한 메시지에 여러 미션을 줄마다 올려도 각각 인정한다 (❌는 메시지 전체에 적용)
         for msg in msgs:
-            num = MISSION_NO.match(msg.get("content", ""))
-            mission = by_no.get(int(num.group(1))) if num else None
-            if (msg["author"]["id"] != uid or not mission or not is_user_message(msg)
-                    or not season.contains(msg["id"])
-                    or not proof_ok(msg, mission, uid, admins)
-                    or dc.reacted_by(th["id"], msg, REJECT, admins)):
+            if msg["author"]["id"] != uid or not is_user_message(msg) or not season.contains(msg["id"]):
                 continue
-            scores[uid].missions.add(mission["num"])
+            done = [by_no[n] for nums, text in mission_entries(msg.get("content", "")) for n in nums
+                    if n in by_no and proof_ok(msg, by_no[n], text, uid, admins, role_members)]
+            if not done or dc.reacted_by(th["id"], msg, REJECT, admins):
+                continue
             when = sent_at(msg["id"])
-            if mission["num"] not in scores[uid].mission_times or when < scores[uid].mission_times[mission["num"]]:
-                scores[uid].mission_times[mission["num"]] = when
-            if mission["proof"] == "image" and sent_at(msg["id"]) >= week_ago:
-                review.append((uid, mission["num"], f"https://discord.com/channels/{gid}/{th['id']}/{msg['id']}"))
+            for mission in done:
+                scores[uid].missions.add(mission["num"])
+                if mission["num"] not in scores[uid].mission_times or when < scores[uid].mission_times[mission["num"]]:
+                    scores[uid].mission_times[mission["num"]] = when
+                if mission["proof"] == "image" and when >= week_ago:
+                    review.append((uid, mission["num"], f"https://discord.com/channels/{gid}/{th['id']}/{msg['id']}"))
 
     # 블로그 후기: 운영진이 ✅를 단 글만
     for msg in dc.messages(ch["blog"]):
@@ -477,7 +503,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     ranking = sorted(scores, key=lambda u: (-total[u], -kinds[u], names[u]))
 
     # 1) 패스 글: 없는 디퍼는 새로 만들고, 있으면 보관 해제·제목·현황판·멤버 정리
-    created = updated = cleaned = 0
+    created = updated = cleaned = notices = 0
     for uid in dippers:
         board = pass_board(uid, scores[uid], missions, rules)
         title = names[uid][:100]
@@ -491,7 +517,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
                 dc.write("PUT", f"/channels/{th['id']}/thread-members/{uid}")
             created += 1
             continue
-        th, starter = posts[uid]
+        th, starter, msgs = posts[uid]
         changes = {}
         if th.get("thread_metadata", {}).get("archived"):
             changes["archived"] = False
@@ -506,11 +532,19 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
         # 멘션받은 사람은 디스코드가 글 멤버로 넣어서 사이드바에 남의 패스 글이 쌓인다.
         # 주인만 남기고 빼서, 사이드바엔 각자 자기 글만 보이게 한다.
         joined = {tm["user_id"] for tm in dc.get(f"/channels/{th['id']}/thread-members")}
-        for other in joined - {uid, bot_id}:
+        others = joined - {uid, bot_id}
+        for other in others:
             dc.write("DELETE", f"/channels/{th['id']}/thread-members/{other}")
             cleaned += 1
         if uid not in joined:
             dc.write("PUT", f"/channels/{th['id']}/thread-members/{uid}")
+        # 멤버를 넣고 뺄 때 디스코드가 남기는 'OO님을 스레드에서 제거했어요' 안내는 헷갈리니 지운다
+        seen = msgs
+        if (others or uid not in joined) and not dc.dry_run:
+            seen = msgs + dc.get(f"/channels/{th['id']}/messages", limit=20)
+        for notice in {m["id"] for m in seen if m.get("type") in MEMBER_NOTICE_TYPES and m["author"]["id"] == bot_id}:
+            dc.write("DELETE", f"/channels/{th['id']}/messages/{notice}")
+            notices += 1
 
     # 2) 패스 뱃지 역할: 디퍼는 현재 단계 역할 하나만, 디퍼가 아닌 사람(운영진 등)은 전부 뗀다
     stage_roles = roles["pass_stages"]
@@ -575,7 +609,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     dc.sync_messages(ch["admin_report"], bot_id, chunk(report))
 
     print(f"디퍼 {len(dippers)}명 · 질문 게시 {posted} · 패스 글 생성 {created} · 현황판 갱신 {updated} · "
-          f"글 멤버 정리 {cleaned} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
+          f"글 멤버 정리 {cleaned} · 멤버 안내 삭제 {notices} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
     if dc.dry_run:  # 로컬 확인용. GitHub 로그에는 이름을 남기지 않는다
         print("\n[리더보드]\n" + "\n".join(leaderboard))
         print("\n[점수표]\n" + "\n".join(rows))
