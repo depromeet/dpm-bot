@@ -35,7 +35,6 @@ MISSION_NOS = re.compile(r"^\s*#?\s*(\d{1,2}(?:\s*[,·/&+]\s*#?\s*\d{1,2})*)(?!\
 JOIN_MSG = re.compile(r"^\s*참여\s*:?\s*<@")  # 번개·스터디 참여 인증: '참여 @누구' ('참여하실 분 @누구'는 제외)
 USER_TAG = re.compile(r"<@!?(\d+)>")
 ROLE_TAG = re.compile(r"<@&(\d+)>")
-MEMBER_NOTICE_TYPES = (1, 2)  # 'OO님을 스레드에 추가/제거했어요' 시스템 메시지
 QUEUE_LINE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})(?:\s*\([월화수목금토일]\))?\s+(\S.*?)\s*$")  # '11/02 질문' 또는 '11/2(월) 질문'
 WEEKDAYS = "월화수목금토일"
 OPTIONAL_CHANNELS = {"question_queue", "gift_log"}  # 비워두면 그 기능만 꺼진다
@@ -453,7 +452,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
                 getattr(scores[uid], join_key).add(th["id"])
 
     # 디프만 패스: 봇이 만든 글만 본다. 글 주인은 현황판 첫 줄의 멘션으로 찾는다
-    posts: dict[str, tuple[dict, dict, list[dict]]] = {}
+    posts: dict[str, tuple[dict, dict]] = {}
     review: list[tuple[str, int, str]] = []
     week_ago = datetime.now(KST) - timedelta(days=7)
     for th in dc.forum_threads(ch["pass_forum"], active):
@@ -470,7 +469,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
         if not tag or tag.group(1) in posts:
             continue
         uid = tag.group(1)
-        posts[uid] = (th, starter, msgs)
+        posts[uid] = (th, starter)
         if uid not in scores:
             continue
         # 한 메시지에 여러 미션을 줄마다 올려도 각각 인정한다 (❌는 메시지 전체에 적용)
@@ -503,7 +502,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     ranking = sorted(scores, key=lambda u: (-total[u], -kinds[u], names[u]))
 
     # 1) 패스 글: 없는 디퍼는 새로 만들고, 있으면 보관 해제·제목·현황판·멤버 정리
-    created = updated = cleaned = notices = 0
+    created = updated = cleaned = 0
     for uid in dippers:
         board = pass_board(uid, scores[uid], missions, rules)
         title = names[uid][:100]
@@ -517,7 +516,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
                 dc.write("PUT", f"/channels/{th['id']}/thread-members/{uid}")
             created += 1
             continue
-        th, starter, msgs = posts[uid]
+        th, starter = posts[uid]
         changes = {}
         if th.get("thread_metadata", {}).get("archived"):
             changes["archived"] = False
@@ -532,19 +531,11 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
         # 멘션받은 사람은 디스코드가 글 멤버로 넣어서 사이드바에 남의 패스 글이 쌓인다.
         # 주인만 남기고 빼서, 사이드바엔 각자 자기 글만 보이게 한다.
         joined = {tm["user_id"] for tm in dc.get(f"/channels/{th['id']}/thread-members")}
-        others = joined - {uid, bot_id}
-        for other in others:
+        for other in joined - {uid, bot_id}:
             dc.write("DELETE", f"/channels/{th['id']}/thread-members/{other}")
             cleaned += 1
         if uid not in joined:
             dc.write("PUT", f"/channels/{th['id']}/thread-members/{uid}")
-        # 멤버를 넣고 뺄 때 디스코드가 남기는 'OO님을 스레드에서 제거했어요' 안내는 헷갈리니 지운다
-        seen = msgs
-        if (others or uid not in joined) and not dc.dry_run:
-            seen = msgs + dc.get(f"/channels/{th['id']}/messages", limit=20)
-        for notice in {m["id"] for m in seen if m.get("type") in MEMBER_NOTICE_TYPES and m["author"]["id"] == bot_id}:
-            dc.write("DELETE", f"/channels/{th['id']}/messages/{notice}")
-            notices += 1
 
     # 2) 패스 뱃지 역할: 디퍼는 현재 단계 역할 하나만, 디퍼가 아닌 사람(운영진 등)은 전부 뗀다
     stage_roles = roles["pass_stages"]
@@ -609,7 +600,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     dc.sync_messages(ch["admin_report"], bot_id, chunk(report))
 
     print(f"디퍼 {len(dippers)}명 · 질문 게시 {posted} · 패스 글 생성 {created} · 현황판 갱신 {updated} · "
-          f"글 멤버 정리 {cleaned} · 멤버 안내 삭제 {notices} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
+          f"글 멤버 정리 {cleaned} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
     if dc.dry_run:  # 로컬 확인용. GitHub 로그에는 이름을 남기지 않는다
         print("\n[리더보드]\n" + "\n".join(leaderboard))
         print("\n[점수표]\n" + "\n".join(rows))
