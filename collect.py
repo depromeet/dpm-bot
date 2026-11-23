@@ -292,7 +292,7 @@ def pass_board(uid: str, score: Score, missions: list[dict], rules: dict) -> str
         "예) `4 오늘 @박디퍼 님이랑 점심 먹었어요!`",
         f"예) `{alone[0] if alone else 10} 완료했어요!` + 📷 스샷을 **같은 메시지에** 첨부",
         "반영까지 몇 시간 걸릴 수 있어요.",
-        "멘션하면 'OO님을 스레드에서 제거했어요'가 뜰 수 있어요. 정상이고 인정에는 영향 없어요!",
+        "멘션한 분께 이 글의 알림이 계속 가지 않도록 봇이 글에서 빼요. 'OO님을 스레드에서 제거했어요'가 떠도 인정에는 영향 없어요!",
     ]
     return "\n".join(lines)
 
