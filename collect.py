@@ -293,7 +293,6 @@ def pass_board(uid: str, score: Score, missions: list[dict], rules: dict) -> str
         "예) `2,3 @김디퍼 @이디퍼 팀 회식하면서 고마운 점 전했어요` (여러 미션은 , 로 묶어도 돼요)",
         f"예) `{alone[0] if alone else 10} 완료했어요!` + 📷 스샷을 **같은 메시지에** 첨부",
         "반영까지 몇 시간 걸릴 수 있어요.",
-        "멘션한 분께 이 글의 알림이 계속 가지 않도록 봇이 글에서 빼요. 'OO님을 스레드에서 제거했어요'가 떠도 인정에는 영향 없어요!",
     ]
     return "\n".join(lines)
 
@@ -503,8 +502,8 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     kinds = {uid: sum(v > 0 for v in p) for uid, p in parts.items()}
     ranking = sorted(scores, key=lambda u: (-total[u], -kinds[u], names[u]))
 
-    # 1) 패스 글: 없는 디퍼는 새로 만들고, 있으면 보관 해제·제목·현황판·멤버 정리
-    created = updated = cleaned = 0
+    # 1) 패스 글: 없는 디퍼는 새로 만들고, 있으면 보관 해제·제목·현황판 갱신
+    created = updated = 0
     for uid in dippers:
         board = pass_board(uid, scores[uid], missions, rules)
         title = names[uid][:100]
@@ -530,12 +529,9 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
             dc.write("PATCH", f"/channels/{th['id']}/messages/{starter['id']}",
                      {"content": board, "allowed_mentions": NO_PINGS})
             updated += 1
-        # 멘션받은 사람은 디스코드가 글 멤버로 넣어서 사이드바에 남의 패스 글이 쌓인다.
-        # 주인만 남기고 빼서, 사이드바엔 각자 자기 글만 보이게 한다.
+        # 주인이 글에서 나갔으면 다시 넣어 사이드바에 자기 글이 보이게 한다.
+        # 멘션받은 사람도 디스코드가 글 멤버로 넣지만 빼지 않는다 (빼면 '스레드에서 제거했어요' 안내가 쌓여 헷갈림)
         joined = {tm["user_id"] for tm in dc.get(f"/channels/{th['id']}/thread-members")}
-        for other in joined - {uid, bot_id}:
-            dc.write("DELETE", f"/channels/{th['id']}/thread-members/{other}")
-            cleaned += 1
         if uid not in joined:
             dc.write("PUT", f"/channels/{th['id']}/thread-members/{uid}")
 
@@ -602,7 +598,7 @@ def run(cfg: dict, dc: Discord, today: date | None = None) -> None:
     dc.sync_messages(ch["admin_report"], bot_id, chunk(report))
 
     print(f"디퍼 {len(dippers)}명 · 질문 게시 {posted} · 패스 글 생성 {created} · 현황판 갱신 {updated} · "
-          f"글 멤버 정리 {cleaned} · 뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
+          f"뱃지 변경 {role_changes} · 쓰기 요청 {dc.writes}")
     if dc.dry_run:  # 로컬 확인용. GitHub 로그에는 이름을 남기지 않는다
         print("\n[리더보드]\n" + "\n".join(leaderboard))
         print("\n[점수표]\n" + "\n".join(rows))
